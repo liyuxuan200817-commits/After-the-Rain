@@ -1,0 +1,11 @@
+# 密钥绝对不能提交到仓库（传智杯明确规定）
+.env
+.env.local
+.env.*.local
+
+# 依赖目录
+node_modules/
+
+# 系统文件
+.DS_Store
+Thumbs.db
