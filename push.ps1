@@ -12,18 +12,22 @@ Write-Host "=== 1. Detecting proxy ===" -ForegroundColor Cyan
 $candidates = @(10090, 7890, 7891, 10809, 10808, 1080, 2080, 8080)
 $found = $null
 foreach ($p in $candidates) {
-    $ok = Test-NetConnection -ComputerName 127.0.0.1 -Port $p -InformationLevel Quiet -WarningAction SilentlyContinue
-    if ($ok) { $found = $p; break }
+    $open = Test-NetConnection -ComputerName 127.0.0.1 -Port $p -InformationLevel Quiet -WarningAction SilentlyContinue
+    if (-not $open) { continue }
+    # 端口开着不代表节点活着，必须实测能否连上 GitHub
+    $code = & curl.exe -x "http://127.0.0.1:$p" -s -o NUL -w "%{http_code}" --max-time 8 https://github.com 2>&1
+    if ("$code" -match '^[23]') { $found = $p; Write-Host "  port $p verified OK" -ForegroundColor Green; break }
+    Write-Host "  port $p open but cannot reach GitHub, skipping" -ForegroundColor Yellow
 }
 
 if ($found) {
     git config --global http.proxy  "http://127.0.0.1:$found"
     git config --global https.proxy "http://127.0.0.1:$found"
-    Write-Host "  Proxy found on port $found, git configured." -ForegroundColor Green
+    Write-Host "  Proxy set on port $found." -ForegroundColor Green
 } else {
     git config --global --unset http.proxy  2>$null
     git config --global --unset https.proxy 2>$null
-    Write-Host "  No proxy detected, trying direct connection." -ForegroundColor Yellow
+    Write-Host "  No working proxy, trying direct connection." -ForegroundColor Yellow
 }
 
 Write-Host "=== 2. Checking connection to GitHub ===" -ForegroundColor Cyan
