@@ -21,3 +21,6 @@ test-images/*.jpg
 test-images/*.jpeg
 test-images/*.png
 test-images/*.webp
+
+# 本地服务日志
+server.log

@@ -22,8 +22,16 @@
 
 import { embed, cosine, loadStore, type VectorItem } from "./rag";
 
+/**
+ * 视觉模型选型说明：
+ *   32B 质量最好（实测描述更细致），但耗时 13–62 秒波动大，在 Vercel 上会触及 60 秒上限。
+ *   8B  实测 5 秒左右，描述质量对本场景足够（任务只是"客观描述色彩/线条/题材/构图"，
+ *       不需要复杂推理）。
+ * 因此默认用 8B 保证稳定；需要更高质量时可用环境变量切换：
+ *   VISION_MODEL=Qwen/Qwen3-VL-32B-Instruct
+ */
 const SF_KEY = process.env.SILICONFLOW_API_KEY;
-const VISION_MODEL = process.env.VISION_MODEL || "Qwen/Qwen3-VL-32B-Instruct";
+const VISION_MODEL = process.env.VISION_MODEL || "Qwen/Qwen3-VL-8B-Instruct";
 
 export type Candidate = {
   name: string;
