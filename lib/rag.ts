@@ -1,5 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
+import rawItems from "@/data/ich-items.json";
+import rawVectors from "@/data/vectors.json";
 
 export type Item = {
   id: string;
@@ -21,18 +21,18 @@ export type VectorItem = Item & { text: string; vector: number[] };
 
 /** 读取原始档案（用于首页展示） */
 export function loadItems(): Item[] {
-  const p = path.join(process.cwd(), "data", "ich-items.json");
-  return JSON.parse(fs.readFileSync(p, "utf8")) as Item[];
+  return rawItems as unknown as Item[];
 }
 
-let cachedStore: VectorItem[] | null = null;
-
-/** 读取向量库（缓存，避免每次请求都读盘） */
+/**
+ * 读取向量库。
+ *
+ * ⚠️ 这里用静态 import 而不用 fs.readFileSync：
+ * Vercel 部署时服务端函数只会打包被"静态引用"的文件，
+ * 用 fs 动态拼路径会漏掉 data/vectors.json，线上直接报 ENOENT。
+ */
 export function loadStore(): VectorItem[] {
-  if (cachedStore) return cachedStore;
-  const p = path.join(process.cwd(), "data", "vectors.json");
-  cachedStore = JSON.parse(fs.readFileSync(p, "utf8")) as VectorItem[];
-  return cachedStore;
+  return rawVectors as unknown as VectorItem[];
 }
 
 /** 余弦相似度 */
