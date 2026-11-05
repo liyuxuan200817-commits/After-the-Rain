@@ -1,0 +1,14 @@
+{
+  "name": "after-the-rain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "雨后天晴 · 非遗数字馆藏助手 | 2026 第九届传智杯 AI WEB 网页开发挑战赛",
+  "scripts": {
+    "chat": "node --env-file=.env chat.js",
+    "stream": "node --env-file=.env chat-stream.js",
+    "embed": "node --env-file=.env rag/embed.js",
+    "search": "node --env-file=.env rag/search.js",
+    "rag": "node --env-file=.env rag/rag.js"
+  }
+}
