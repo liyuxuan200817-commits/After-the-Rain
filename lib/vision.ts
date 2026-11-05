@@ -37,15 +37,23 @@ export type Candidate = {
   name: string;
   school: string;
   region: string;
-  score: number;
+  /** 由 /api/judge 给出的置信度，不再使用向量相似度 */
+  confidence?: "高" | "中" | "低";
+  /** 由 /api/judge 给出的判断理由 */
+  reason?: string;
 };
 
 const DESCRIBE_PROMPT = `请客观描述这幅年画的视觉特征，不要判断它属于哪个流派，只描述你看到的。
 
+⚠️ 重要提醒：木版套色印刷因为手工刷色和套版对位，天然会有这些现象——套印略微错位、
+色块边缘不齐、颜料浓淡不均、局部渗化。这些是印刷工艺的正常痕迹，绝不能当成"手绘"。
+
 请按以下五项分别说明：
-1. 色彩：主要用了哪些颜色？饱和度高低？对比强不强？
+1. 色彩：主要用了哪些颜色？饱和度高低？对比强不强？底色是白纸还是彩色？
 2. 线条：粗细如何？是精雕细琢还是粗犷简练？
-3. 技法痕迹：能看出是纯木版套色印刷，还是有手工彩绘/晕染过渡？
+3. 【关键】技法痕迹：
+   - 若为色块平涂、边界清晰（即便有不齐或渗化）→ 明确写"纯套色印刷，无手绘"
+   - 若确有人物面部晕染开脸、衣饰大面积笔触手绘 → 说明具体部位
 4. 题材内容：画的是什么？人物/娃娃/神像/戏曲/花卉？有无文字？
 5. 构图：对称还是散点？留白多还是满构图？
 
@@ -115,21 +123,24 @@ export async function retrieveByDescription(
 /** 第三步：生成讲解（由调用方使用 DeepSeek，这里只负责拼 Prompt） */
 export function buildInterpretMessages(description: string, candidates: Candidate[]) {
   const refs = candidates
-    .map(
-      (c, i) =>
-        `【参考档案${i + 1}】${c.name}（${c.school}流派，${c.region}）相似度 ${(c.score * 100).toFixed(0)}%`,
-    )
-    .join("\n");
+    .map((c, i) => {
+      const conf = c.confidence ? `，把握程度：${c.confidence}` : "";
+      const why = c.reason ? `\n    判断依据：${c.reason}` : "";
+      return `【参考${i + 1}】${c.name}（${c.school}流派${c.region ? "，" + c.region : ""}${conf}）${why}`;
+    })
+    .join("\n\n");
 
   const detail = loadStore()
-    .filter((it) => candidates.some((c) => c.name === it.name))
+    .filter((it) => candidates.some((c) => c.name === it.name || it.name.includes(c.school)))
     .map((it) => `${it.text}`)
     .join("\n\n");
 
   return [
     {
       role: "system" as const,
-      content: `你是"雨后天晴 · 年画档案助手"的讲解员。用户上传了一张年画照片，系统已经让视觉模型描述了画面，并检索到了相近的馆藏档案。
+      content: `你是"雨后天晴 · 年画档案助手"的讲解员。用户上传了一张年画照片，系统已经做了两件事：
+① 视觉模型客观描述了画面；
+② 另一套判断流程对照七个流派的鉴别要点，给出了候选流派及理由。
 
 请据此写一段讲解，严格按以下结构：
 
@@ -140,7 +151,8 @@ export function buildInterpretMessages(description: string, candidates: Candidat
 解读画面里的吉祥寓意，说明是谐音还是典故，讲清由来。
 
 【可能属于的流派】
-用"可能是……也可能是……"的措辞，最多提两个，并说明依据（色彩、线条、技法）。**不许直接断言属于某个流派**，因为视觉识别并不完全可靠。
+引用上面给出的候选流派排名和判断依据，用"可能是……也可能是……"的措辞。
+**不许直接断言属于某个流派**，因为视觉识别并不完全可靠。要说清每个候选的吻合点。
 
 【温馨提示】
 一句话提醒：准确鉴定需专业机构结合实物与文献判断。
@@ -152,7 +164,7 @@ export function buildInterpretMessages(description: string, candidates: Candidat
     },
     {
       role: "user" as const,
-      content: `【画面描述（视觉模型所见）】\n${description}\n\n【检索到的相近档案】\n${refs}\n\n【档案正文】\n${detail}`,
+      content: `【画面描述（视觉模型所见）】\n${description}\n\n【流派判断候选】\n${refs}\n\n【档案正文】\n${detail}`,
     },
   ];
 }

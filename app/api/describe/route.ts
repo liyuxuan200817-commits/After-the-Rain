@@ -1,16 +1,17 @@
-import { describeImage, retrieveByDescription } from "@/lib/vision";
+import { describeImage } from "@/lib/vision";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * 第一步：看图 + 检索相近馆藏
+ * 第一步：只看图，产出画面描述
  *
  * 请求：POST { image: "data:image/jpeg;base64,..." }
- * 响应：{ description, candidates }
+ * 响应：{ description }
  *
- * 这一步只做视觉描述和向量检索，不做长文本生成，
- * 因此耗时稳定在 10–20 秒，不会触及 Vercel 60 秒上限。
+ * 说明：这里不再做向量检索。经实测（见 docs/技术决策记录.md ADR-002/ADR-008），
+ * 向量检索对"流派归属"的区分度很低（所有相似度挤在 60–65%，且佛山被误排第一 4/5 次）。
+ * 流派判断改由 /api/judge 用大模型对照鉴别要点完成。
  */
 export async function POST(req: Request) {
   const started = Date.now();
@@ -31,11 +32,9 @@ export async function POST(req: Request) {
     }
 
     const description = await describeImage(image);
-    const candidates = await retrieveByDescription(description, 3);
 
     return Response.json({
       description,
-      candidates,
       elapsedMs: Date.now() - started,
     });
   } catch (e) {
@@ -50,6 +49,7 @@ export async function GET() {
     endpoint: "/api/describe",
     method: "POST",
     body: { image: "data:image/jpeg;base64,..." },
-    returns: ["description", "candidates"],
+    returns: { description: "画面客观描述" },
+    next: "把 description 传给 /api/judge",
   });
 }

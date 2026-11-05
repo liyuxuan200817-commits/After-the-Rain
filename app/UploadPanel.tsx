@@ -6,8 +6,11 @@ type Candidate = {
   name: string;
   school: string;
   region: string;
-  score: number;
+  confidence?: "高" | "中" | "低";
+  reason?: string;
 };
+
+type Excluded = { school: string; reason: string };
 
 const DISCLAIMER =
   "本结果由 AI 基于画面描述与馆藏资料生成，仅供文化了解；准确鉴定请由专业机构结合实物与文献判断。";
@@ -37,18 +40,38 @@ async function compressImage(file: File, maxSize = 1024, quality = 0.82): Promis
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+const STAGE_TEXT: Record<string, string> = {
+  compress: "正在压缩图片…",
+  describe: "正在看图，提取画面特征…",
+  judge: "正在对照七流派鉴别要点判断…",
+  compose: "正在撰写讲解…",
+};
+
 export default function UploadPanel() {
   const [preview, setPreview] = useState("");
-  const [stage, setStage] = useState<"" | "compress" | "describe" | "compose">("");
+  const [stage, setStage] = useState<"" | "compress" | "describe" | "judge" | "compose">("");
   const [description, setDescription] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [excluded, setExcluded] = useState<Excluded[]>([]);
   const [interpretation, setInterpretation] = useState("");
   const [error, setError] = useState("");
   const [meta, setMeta] = useState("");
-  const [elapsed, setElapsed] = useState("");
+  const [timing, setTiming] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loading = stage !== "";
+
+  function reset() {
+    setPreview("");
+    setDescription("");
+    setCandidates([]);
+    setExcluded([]);
+    setInterpretation("");
+    setError("");
+    setMeta("");
+    setTiming("");
+    if (inputRef.current) inputRef.current.value = "";
+  }
 
   async function handleFile(file: File) {
     if (!file.type.startsWith("image/")) {
@@ -56,57 +79,63 @@ export default function UploadPanel() {
       return;
     }
 
-    // 重置
-    setError("");
-    setDescription("");
-    setCandidates([]);
-    setInterpretation("");
-    setElapsed("");
+    reset();
     setStage("compress");
+
+    const t0 = Date.now();
 
     try {
       // ① 压缩
       const dataUrl = await compressImage(file);
       setPreview(dataUrl);
-      const kb = Math.round((dataUrl.length * 3) / 4 / 1024);
-      setMeta(`压缩后约 ${kb} KB`);
+      setMeta(`压缩后约 ${Math.round((dataUrl.length * 3) / 4 / 1024)} KB`);
 
-      // ② 看图 + 检索
+      // ② 看图
       setStage("describe");
-      const t0 = Date.now();
-      const res = await fetch("/api/describe", {
+      const r1 = await fetch("/api/describe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: dataUrl }),
       });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error || `识别失败 HTTP ${res.status}`);
+      const d1 = await r1.json();
+      if (!r1.ok) {
+        setError(d1.error || `看图失败 HTTP ${r1.status}`);
         setStage("");
         return;
       }
+      setDescription(d1.description);
 
-      setDescription(data.description);
-      setCandidates(data.candidates);
-      setElapsed(`看图与检索耗时 ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
-
-      // ③ 生成讲解（流式）
-      setStage("compose");
-      const res2 = await fetch("/api/compose", {
+      // ③ 判断流派（大模型对照鉴别要点）
+      setStage("judge");
+      const r2 = await fetch("/api/judge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: data.description, candidates: data.candidates }),
+        body: JSON.stringify({ description: d1.description }),
+      });
+      const d2 = await r2.json();
+      if (!r2.ok) {
+        setError(d2.error || `判断失败 HTTP ${r2.status}`);
+        setStage("");
+        return;
+      }
+      setCandidates(d2.candidates ?? []);
+      setExcluded(d2.excluded ?? []);
+
+      // ④ 生成讲解（流式）
+      setStage("compose");
+      const r3 = await fetch("/api/compose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: d1.description, candidates: d2.candidates }),
       });
 
-      if (!res2.ok || !res2.body) {
-        const msg = await res2.text();
-        setError(msg || `讲解生成失败 HTTP ${res2.status}`);
+      if (!r3.ok || !r3.body) {
+        setError((await r3.text()) || `讲解生成失败 HTTP ${r3.status}`);
         setStage("");
         return;
       }
 
-      const reader = res2.body.getReader();
+      const reader = r3.body.getReader();
       const decoder = new TextDecoder("utf-8");
       let acc = "";
       while (true) {
@@ -115,6 +144,8 @@ export default function UploadPanel() {
         acc += decoder.decode(value, { stream: true });
         setInterpretation(acc);
       }
+
+      setTiming(`总耗时 ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
     } catch (e) {
       setError(`处理失败：${(e as Error).message}`);
     } finally {
@@ -122,28 +153,10 @@ export default function UploadPanel() {
     }
   }
 
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (f) handleFile(f);
-  }
-
-  function reset() {
-    setPreview("");
-    setDescription("");
-    setCandidates([]);
-    setInterpretation("");
-    setError("");
-    setMeta("");
-    setElapsed("");
-    if (inputRef.current) inputRef.current.value = "";
-  }
-
-  const STAGE_TEXT: Record<string, string> = {
-    compress: "正在压缩图片…",
-    describe: "正在看图并检索馆藏…",
-    compose: "正在撰写讲解…",
-  };
-  const stageText = STAGE_TEXT[stage] ?? "";
+  const confColor = (c?: string) =>
+    c === "高" ? "#166534" : c === "中" ? "#8A6A12" : "#9A5B00";
+  const confBg = (c?: string) =>
+    c === "高" ? "#DCFCE7" : c === "中" ? "#FDF6E3" : "#FEF3C7";
 
   return (
     <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
@@ -157,7 +170,6 @@ export default function UploadPanel() {
         </span>
       </div>
 
-      {/* 上传区 */}
       {!preview && (
         <label
           className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-300 py-12 transition hover:border-[#A62B1F] hover:bg-stone-50"
@@ -175,20 +187,16 @@ export default function UploadPanel() {
           <div className="mt-1 text-xs text-stone-400">
             支持 jpg / png / webp，会自动压缩后再上传
           </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={onPick}
-          />
+          <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+          }} />
         </label>
       )}
 
-      {/* 结果区 */}
       {preview && (
         <div className="flex flex-col gap-4 sm:flex-row">
-          <div className="sm:w-56 shrink-0">
+          <div className="sm:w-52 shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={preview}
@@ -206,45 +214,62 @@ export default function UploadPanel() {
           </div>
 
           <div className="flex-1 min-w-0">
-            {/* 进度 */}
             {stage && (
               <div className="mb-3 flex items-center gap-2 rounded-lg bg-stone-50 px-4 py-3 text-sm text-stone-600">
                 <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-stone-300 border-t-[#A62B1F]" />
-                {stageText}
+                {STAGE_TEXT[stage] ?? ""}
               </div>
             )}
 
-            {/* 错误 */}
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                 {error}
               </div>
             )}
 
-            {/* 相近馆藏 */}
             {candidates.length > 0 && (
               <div className="mb-3">
                 <div className="mb-2 text-xs font-semibold text-stone-500">
-                  检索到的相近馆藏
+                  流派判断（对照七流派鉴别要点，按可能性排序）
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="space-y-2">
                   {candidates.map((c, i) => (
-                    <span
-                      key={c.name}
-                      className="rounded-lg px-3 py-1.5 text-xs"
+                    <div
+                      key={c.school}
+                      className="rounded-lg border px-3 py-2"
                       style={{
-                        background: i === 0 ? "#F7E7E8" : "#F5F5F4",
-                        color: i === 0 ? "var(--zhuhong)" : "#57534E",
+                        borderColor: i === 0 ? "#E8C4C7" : "#E7E5E4",
+                        background: i === 0 ? "#FDF6F6" : "#FAFAF9",
                       }}
                     >
-                      {c.name} · {Math.round(c.score * 100)}%
-                    </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold" style={{ color: i === 0 ? "var(--zhuhong)" : "#57534E" }}>
+                          {i + 1}. {c.school}
+                        </span>
+                        {c.confidence && (
+                          <span
+                            className="rounded px-1.5 py-0.5 text-[11px]"
+                            style={{ background: confBg(c.confidence), color: confColor(c.confidence) }}
+                          >
+                            把握{c.confidence}
+                          </span>
+                        )}
+                        {c.region && <span className="text-[11px] text-stone-400">{c.region}</span>}
+                      </div>
+                      {c.reason && (
+                        <div className="mt-1 text-xs leading-5 text-stone-500">{c.reason}</div>
+                      )}
+                    </div>
                   ))}
                 </div>
+                {excluded.length > 0 && (
+                  <div className="mt-2 text-xs text-stone-400">
+                    已排除：{excluded.map((e) => e.school).join("、")}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* 讲解 */}
             {(interpretation || stage === "compose") && (
               <div>
                 <div className="mb-2 text-xs font-semibold text-stone-500">AI 讲解</div>
@@ -254,7 +279,6 @@ export default function UploadPanel() {
               </div>
             )}
 
-            {/* 技术细节 */}
             {description && (
               <details className="mt-3 rounded-xl bg-stone-50 p-4">
                 <summary className="cursor-pointer text-xs font-semibold text-stone-500">
@@ -269,7 +293,7 @@ export default function UploadPanel() {
             {!stage && interpretation && (
               <div className="mt-3 text-xs text-stone-400">
                 {DISCLAIMER}
-                {elapsed ? ` · ${elapsed}` : ""}
+                {timing ? ` · ${timing}` : ""}
               </div>
             )}
           </div>
