@@ -12,7 +12,19 @@ export async function POST(req: Request) {
 
     const dsKey = process.env.DEEPSEEK_API_KEY;
     if (!dsKey) {
-      return new Response("服务端缺少 DEEPSEEK_API_KEY，请检查 .env", { status: 500 });
+      return new Response(
+        [
+          "服务端缺少 DEEPSEEK_API_KEY。",
+          "",
+          "如果你看到这句话，说明程序正在线上运行但没读到密钥。",
+          "本地开发：检查 .env 文件是否填写。",
+          "线上部署：到 Vercel → 项目 → Settings → Environment Variables",
+          "          添加 DEEPSEEK_API_KEY，然后重新部署（Redeploy）。",
+          "",
+          "详细自检：访问 /api/health",
+        ].join("\n"),
+        { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } },
+      );
     }
 
     // ① 检索
