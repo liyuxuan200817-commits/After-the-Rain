@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/*
+  年画配色：
+  朱红 #A62B1F  金 #D4AF37  宣纸白 #FAF8F4  墨 #24282F
+*/
+
+:root {
+  --zhuhong: #a62b1f;
+  --jin: #d4af37;
+  --xuan: #faf8f4;
+  --mo: #24282f;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--xuan);
+  color: var(--mo);
+  font-family: "Microsoft YaHei", "PingFang SC", -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 年画卡片悬停效果 */
+.nh-card {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.nh-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 26px rgba(166, 43, 31, 0.12);
+  border-color: var(--zhuhong);
+}
+
+/* 流式输出时的光标 */
+.streaming::after {
+  content: "▍";
+  color: var(--zhuhong);
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}

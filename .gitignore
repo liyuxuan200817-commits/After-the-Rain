@@ -6,6 +6,12 @@
 # 依赖目录
 node_modules/
 
+# Next.js 构建产物
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
 # 系统文件
 .DS_Store
 Thumbs.db
