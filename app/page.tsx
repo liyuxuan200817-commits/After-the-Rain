@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import ChatBox from "./ChatBox";
+import UploadPanel from "./UploadPanel";
 import type { Item } from "@/lib/rag";
 
 function loadItems(): Item[] {
@@ -25,9 +26,15 @@ export default function Home() {
         <p className="mt-3 text-sm text-stone-600 leading-6">
           中国木版年画的数字馆藏助手 —— 收录
           <strong> {schools.length} 大流派</strong>，{items.length} 条档案。
-          提问时 AI 只依据馆藏资料作答，并注明来源，查不到就明说。
+          可以提问，也可以上传照片让 AI 讲讲这幅画。
+          AI 只依据馆藏资料作答，并注明来源，查不到就明说。
         </p>
       </header>
+
+      {/* 看图讲年画 */}
+      <section className="mb-8">
+        <UploadPanel />
+      </section>
 
       {/* 问答区 */}
       <ChatBox />
