@@ -31,10 +31,16 @@ if ($found) {
 }
 
 Write-Host "=== 2. Checking connection to GitHub ===" -ForegroundColor Cyan
-$code = & curl.exe -s -o NUL -w "%{http_code}" --max-time 15 https://github.com 2>&1
-Write-Host "  github.com -> HTTP $code"
+# Must check the same way git will connect: via proxy if one is set, otherwise direct
+if ($found) {
+    $code = & curl.exe -x "http://127.0.0.1:$found" -s -o NUL -w "%{http_code}" --max-time 15 https://github.com 2>&1
+    Write-Host "  github.com (via proxy $found) -> HTTP $code"
+} else {
+    $code = & curl.exe -s -o NUL -w "%{http_code}" --max-time 15 https://github.com 2>&1
+    Write-Host "  github.com (direct) -> HTTP $code"
+}
 if ("$code" -notmatch '^[23]') {
-    Write-Host "  CANNOT reach GitHub. Please turn on your VPN first, then run this again." -ForegroundColor Red
+    Write-Host "  CANNOT reach GitHub. Please turn on your VPN / switch node, then retry." -ForegroundColor Red
     exit 1
 }
 
