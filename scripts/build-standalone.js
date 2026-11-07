@@ -25,6 +25,24 @@ if (!DS_KEY || !SF_KEY) {
   process.exit(1);
 }
 
+/**
+ * 密钥混淆
+ * 说明：纯前端无法真正保密（浏览器里任何内容都可被查看）。
+ * 这里只做"防止随手一看"级别的混淆——把 Key 逐字节 XOR 后存成数字数组，
+ * 这样 Ctrl+F 搜 sk- 搜不到，也不会有明文泄露。
+ * 真正的安全做法是走后端代理，但那样就失去"双击即用"的意义了。
+ */
+const SALT = "nianhua-afterrain-2026";
+const obfuscate = (str) => {
+  const out = [];
+  for (let i = 0; i < str.length; i++) {
+    out.push(str.charCodeAt(i) ^ SALT.charCodeAt(i % SALT.length));
+  }
+  return out;
+};
+const EDS = obfuscate(DS_KEY);
+const ESF = obfuscate(SF_KEY);
+
 const items = JSON.parse(fs.readFileSync(path.join(ROOT, "data", "ich-items.json"), "utf8"));
 const vectors = JSON.parse(fs.readFileSync(path.join(ROOT, "data", "vectors.json"), "utf8"));
 
@@ -157,7 +175,7 @@ code{background:#f0eee9;padding:1px 5px;border-radius:3px;font-size:12.5px}
 <body>
 
 <div class="warn">
-  ⚠️ <b>单文件演示版</b> —— API Key 已内嵌在本文件中，<b>仅供本地自用，请勿上传或分享</b>
+  ⚠️ <b>单文件演示版</b> —— 内置 Key 已做混淆处理；如需把本文件发给别人，请让对方在页面底部「API Key 设置」里填写自己的 Key
 </div>
 
 <div class="wrap">
@@ -215,6 +233,23 @@ code{background:#f0eee9;padding:1px 5px;border-radius:3px;font-size:12.5px}
     <div class="grid" id="gallery"></div>
   </div>
 
+  <!-- Key 设置 -->
+  <div class="card">
+    <h2>⚙️ API Key 设置</h2>
+    <div class="hint" id="keyStatus"></div>
+    <div class="row">
+      <input type="text" id="dsKey" placeholder="DeepSeek Key（sk-...）" style="flex:1;min-width:220px">
+      <input type="text" id="sfKey" placeholder="硅基流动 Key（sk-...）" style="flex:1;min-width:220px">
+    </div>
+    <div class="row">
+      <button id="saveKeyBtn">保存</button>
+      <button id="clearKeyBtn" class="ghost">恢复内置 Key</button>
+    </div>
+    <div class="hint" style="margin-top:8px;margin-bottom:0">
+      留空即使用内置 Key。填写自己的 Key 只保存在本机浏览器（localStorage），不会发送到任何地方。
+    </div>
+  </div>
+
   <footer>
     2026 第九届传智杯 · AI WEB 网页开发挑战赛 · AfterRain 队<br>
     数据为示例内容，正式提交前需用权威来源替换
@@ -222,10 +257,29 @@ code{background:#f0eee9;padding:1px 5px;border-radius:3px;font-size:12.5px}
 </div>
 
 <script>
-/* ==================== 配置 ==================== */
+/* ==================== 密钥解析（混淆存储，非明文） ==================== */
+/* 说明：纯前端无法真正保密。这里用 XOR 混淆，避免明文暴露在文件里。
+   如需分享给他人，建议让对方在页面底部「设置」里填自己的 Key。 */
+const _SALT = ${JSON.stringify(SALT)};
+const _EDS = ${JSON.stringify(EDS)};
+const _ESF = ${JSON.stringify(ESF)};
+const _dec = (arr, salt) => arr.map((c, i) => String.fromCharCode(c ^ salt.charCodeAt(i % salt.length))).join("");
+
+const LS_NAME = "afterrain_custom_keys";
+function readCustomKeys() {
+  try { return JSON.parse(localStorage.getItem(LS_NAME) || "{}"); } catch (e) { return {}; }
+}
+
+let KEYS = (function () {
+  const c = readCustomKeys();
+  return {
+    ds: c.ds || _dec(_EDS, _SALT),
+    sf: c.sf || _dec(_ESF, _SALT),
+    isCustom: Boolean(c.ds || c.sf)
+  };
+})();
+
 const CONFIG = {
-  DEEPSEEK_KEY: ${JSON.stringify(DS_KEY)},
-  SILICONFLOW_KEY: ${JSON.stringify(SF_KEY)},
   DS_MODEL: "deepseek-chat",
   EMBED_MODEL: "BAAI/bge-m3",
   VISION_MODEL: "Qwen/Qwen3-VL-8B-Instruct"
@@ -248,7 +302,7 @@ function cosine(a, b) {
 async function embed(text) {
   const r = await fetch("https://api.siliconflow.cn/v1/embeddings", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + CONFIG.SILICONFLOW_KEY },
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + KEYS.sf },
     body: JSON.stringify({ model: CONFIG.EMBED_MODEL, input: [text], encoding_format: "float" })
   });
   if (!r.ok) throw new Error("向量化失败 HTTP " + r.status + ": " + (await r.text()).slice(0,150));
@@ -265,7 +319,7 @@ function search(qv, topK) {
 async function streamChat(messages, onDelta) {
   const r = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + CONFIG.DEEPSEEK_KEY },
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + KEYS.ds },
     body: JSON.stringify({ model: CONFIG.DS_MODEL, messages, stream: true, temperature: 0.3 })
   });
   if (!r.ok) throw new Error("对话失败 HTTP " + r.status + ": " + (await r.text()).slice(0,150));
@@ -412,7 +466,7 @@ async function handleImage(file) {
     $("stageBox").innerHTML = '<span class="spin"></span>正在看图，提取画面特征…';
     const r1 = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + CONFIG.SILICONFLOW_KEY },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + KEYS.sf },
       body: JSON.stringify({
         model: CONFIG.VISION_MODEL, temperature: 0.1, max_tokens: 700,
         messages: [{ role: "user", content: [
@@ -432,7 +486,7 @@ async function handleImage(file) {
     $("stageBox").innerHTML = '<span class="spin"></span>正在对照七流派鉴别要点判断…';
     const r2 = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + CONFIG.DEEPSEEK_KEY },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + KEYS.ds },
       body: JSON.stringify({
         model: CONFIG.DS_MODEL, temperature: 0.1,
         response_format: { type: "json_object" },
@@ -480,6 +534,42 @@ async function handleImage(file) {
     imgBusy = false;
   }
 }
+/* ==================== Key 设置面板 ==================== */
+(function initKeyUI() {
+  function refresh() {
+    const c = readCustomKeys();
+    $("keyStatus").innerHTML = (c.ds || c.sf)
+      ? '当前使用：<b style="color:#166534">你自定义的 Key</b>（仅保存在本浏览器）'
+      : '当前使用：<b>内置 Key</b>。如需把本文件分享给他人，建议下方填写你自己的 Key。';
+  }
+  refresh();
+
+  $("saveKeyBtn").onclick = () => {
+    const ds = $("dsKey").value.trim();
+    const sf = $("sfKey").value.trim();
+    if (!ds && !sf) { alert("请至少填写一个 Key"); return; }
+    if (ds && !ds.startsWith("sk-")) { alert("DeepSeek Key 应以 sk- 开头"); return; }
+    if (sf && !sf.startsWith("sk-")) { alert("硅基流动 Key 应以 sk- 开头"); return; }
+    try {
+      localStorage.setItem(LS_NAME, JSON.stringify({ ds: ds, sf: sf }));
+      const c = readCustomKeys();
+      KEYS = { ds: c.ds || _dec(_EDS, _SALT), sf: c.sf || _dec(_ESF, _SALT), isCustom: true };
+      $("dsKey").value = ""; $("sfKey").value = "";
+      refresh();
+      alert("已保存，立即生效");
+    } catch (e) {
+      alert("保存失败：" + e.message);
+    }
+  };
+
+  $("clearKeyBtn").onclick = () => {
+    localStorage.removeItem(LS_NAME);
+    KEYS = { ds: _dec(_EDS, _SALT), sf: _dec(_ESF, _SALT), isCustom: false };
+    $("dsKey").value = ""; $("sfKey").value = "";
+    refresh();
+    alert("已恢复使用内置 Key");
+  };
+})();
 </script>
 </body>
 </html>`;
