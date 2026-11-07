@@ -24,3 +24,7 @@ test-images/*.webp
 
 # 本地服务日志
 server.log
+
+# 单文件版内嵌了 API Key，绝不能提交
+年画档案-单文件版.html
+*.单文件版.html

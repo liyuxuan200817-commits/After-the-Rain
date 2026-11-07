@@ -88,6 +88,7 @@ async function main() {
   const payload = items.map((item, i) => ({
     id: item.id,
     name: item.name,
+    school: item.school ?? "",
     category: item.category,
     region: item.region,
     text: chunks[i],
